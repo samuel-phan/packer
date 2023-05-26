@@ -157,9 +157,23 @@ func TestDiscoverDatasource(t *testing.T) {
 func TestDiscover_NonExecutableMultiComponentPlugins(t *testing.T) {
 	pluginNames := []string{"packer-plugin-partyparrot", "packer-plugin-happycloud", "packer-plugin-long-name-component"}
 	// Create a temporary directory to store plugins in
-	dir, _, cleanUpFunc, err := generateFakePlugins("custom_plugin_dir", pluginNames)
+	dir, err := os.MkdirTemp("", "custom_plugin_dir")
 	if err != nil {
-		t.Fatalf("Error creating fake custom plugins: %s", err)
+		t.Fatalf("failed to create temporary test directory: %v", err)
+	}
+
+	cleanUpFunc := func() {
+		os.RemoveAll(dir)
+	}
+
+	plugins := make([]string, len(pluginNames))
+	for i, plugin := range pluginNames {
+		plug := filepath.Join(dir, plugin)
+		plugins[i] = plug
+		_, err := os.Create(plug)
+		if err != nil {
+			t.Fatalf("failed to create fake plugins for testing: %v", err)
+		}
 	}
 
 	defer cleanUpFunc()
