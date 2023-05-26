@@ -100,16 +100,19 @@ func (c *PluginConfig) Discover() error {
 	// Manually installed plugins take precedence over all. Duplicate plugins installed
 	// prior to the packer plugins install command should be removed by user to avoid overrides.
 	for _, knownFolder := range c.KnownPluginFolders {
-		pluginPaths, err := c.discoverSingle(filepath.Join(knownFolder, "packer-plugin-*"))
+
+		pluginPaths, err := c.discoverSingle(filepath.Join(knownFolder, "packer-plugin-*"), func(match string) bool {
+			// Test matched plugin is an executable
+			if _, err := exec.LookPath(match); err != nil {
+				return false
+			}
+			return true
+		})
+
 		if err != nil {
 			return err
 		}
 		for pluginName, pluginPath := range pluginPaths {
-			// Test pluginPath points to an executable
-			if _, err := exec.LookPath(pluginPath); err != nil {
-				log.Printf("[WARN] %q is not executable; skipping", pluginPath)
-				continue
-			}
 			if err := c.DiscoverMultiPlugin(pluginName, pluginPath); err != nil {
 				return err
 			}
@@ -282,7 +285,7 @@ func (c *PluginConfig) discoverLegacyMonoComponents(path string) error {
 	return nil
 }
 
-func (c *PluginConfig) discoverSingle(glob string) (map[string]string, error) {
+func (c *PluginConfig) discoverSingle(glob string, checks ...func(string) bool) (map[string]string, error) {
 	matches, err := filepath.Glob(glob)
 	if err != nil {
 		return nil, err
@@ -306,6 +309,19 @@ func (c *PluginConfig) discoverSingle(glob string) (map[string]string, error) {
 			log.Printf(
 				"[TRACE] Ignoring plugin match %s, no exe extension",
 				match)
+			continue
+		}
+
+		// Ignore any matched plugin paths that don't meet the defined checks
+		var failedPluginChecks bool
+		for _, checkFn := range checks {
+			ok := checkFn(match)
+			if !ok {
+				failedPluginChecks = true
+			}
+		}
+
+		if failedPluginChecks {
 			continue
 		}
 

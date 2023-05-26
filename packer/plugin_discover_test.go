@@ -154,6 +154,80 @@ func TestDiscoverDatasource(t *testing.T) {
 	}
 }
 
+func TestDiscover_NonExecutableMultiComponentPlugins(t *testing.T) {
+	pluginNames := []string{"packer-plugin-partyparrot", "packer-plugin-happycloud", "packer-plugin-long-name-component"}
+	// Create a temporary directory to store plugins in
+	dir, _, cleanUpFunc, err := generateFakePlugins("custom_plugin_dir", pluginNames)
+	if err != nil {
+		t.Fatalf("Error creating fake custom plugins: %s", err)
+	}
+
+	defer cleanUpFunc()
+
+	// Add temp dir to path.
+	t.Setenv("PACKER_PLUGIN_PATH", dir)
+
+	config := newPluginConfig()
+
+	err = config.Discover()
+	if err != nil {
+		t.Fatalf("Should not have errored: %s", err)
+	}
+
+	if len(config.Builders.List()) != 0 {
+		t.Fatalf("Should have no builders, as non-executable plugins are skipped")
+	}
+	if len(config.DataSources.List()) != 0 {
+		t.Fatalf("Should have no datasources, as non-executable plugins are skipped")
+	}
+	if len(config.Provisioners.List()) != 0 {
+		t.Fatalf("Should have no provisioners, as non-executable plugins are skipped")
+	}
+	if len(config.PostProcessors.List()) != 0 {
+		t.Fatalf("Should have no post-processors, as non-executable plugins are skipped")
+	}
+}
+
+func TestDiscover_MixMultiComponentPluginFiles(t *testing.T) {
+	// Create mock executable plugins and set PACKER_PLUGIN_PATH env
+	createMockPlugins(t, mockPlugins)
+
+	pluginPath := os.Getenv("PACKER_PLUGIN_PATH")
+	if pluginPath == "" {
+		t.Fatalf("PACKER_PLUGIN_PATH should be set")
+	}
+
+	defer func() {
+		os.RemoveAll(pluginPath)
+	}()
+
+	t.Logf("creating non-executables in %s", pluginPath)
+	for name := range mockPlugins {
+		f, err := os.CreateTemp(pluginPath, "packer-plugin-"+name+"_SHA256SUMS")
+		if err != nil {
+			t.Errorf("Failed to create non-executable fake plugin file: %v", err)
+		}
+		t.Logf("created fake fake plugin %s", f.Name())
+	}
+
+	config := newPluginConfig()
+	err := config.Discover()
+	if err != nil {
+		t.Fatalf("Should not have errored: %s", err)
+	}
+
+	t.Logf("config %#v", config)
+	if len(config.Builders.List()) == 0 {
+		t.Fatalf("Should have two builders, as non-executable plugins with similar names are skipped")
+	}
+	if len(config.DataSources.List()) == 0 {
+		t.Fatalf("Should have one datasource, as non-executable plugins with similar names are skipped")
+	}
+	if len(config.PostProcessors.List()) == 0 {
+		t.Fatalf("Should have one post-processor, as non-executable plugins with similar names are skipped")
+	}
+}
+
 func generateFakePlugins(dirname string, pluginNames []string) (string, []string, func(), error) {
 	dir, err := os.MkdirTemp("", dirname)
 	if err != nil {
